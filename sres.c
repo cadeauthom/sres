@@ -35,6 +35,11 @@
 #define MAXLINE 512
 
 char* LOG=NULL;
+typedef struct {
+  size_t size;
+  char** users;
+} Users;
+Users users;
 
 void logger (const char *cmd, char* args[]) {
 {
@@ -60,7 +65,9 @@ int readconf (char * etc) {
     FILE *fp;
     char sep='=';
     char line[MAXLINE];
-    char *pos;
+    char *pos, *p;
+    int i,j,s;
+
     fp = fopen(etc,"r");
     if (fp == NULL)
         return -1;
@@ -85,6 +92,27 @@ int readconf (char * etc) {
             LOG = malloc(strlen(pos)*sizeof(char));
             memcpy ( LOG, pos, strlen(pos) );
             LOG[strlen(pos)-1]='\0';
+        } else if (strncasecmp (line,"users=",6) == 0){
+            pos=line;
+            for (i=0; pos[i]; pos[i]==',' ? i++ : pos++){}
+            i++;
+            if (users.size==0)
+                users.users = malloc (i*sizeof(char*));
+            else
+                users.users = realloc (users.users, (i+users.size)*sizeof(char*));
+            for (pos=strchr(line,sep), j=users.size; pos!=NULL; ++j) {
+                pos++;
+                p=pos;
+                pos=strchr(p,',');
+                if (pos)
+                    s=strlen(p)-strlen(pos);
+                else
+                    s=strlen(p)-1;
+                users.users[j]=malloc((s+1)*sizeof(char));
+                memcpy ( users.users[j], p, s);
+                users.users[j][s]='\0';
+            }
+            users.size+=i;
         } else {
             printf("sres: error: don't know this configuration: %s", line);
             continue;
@@ -95,8 +123,14 @@ int readconf (char * etc) {
 }
 /* Clean the configuration and global variables*/
 void cleanconf() {
+    int i;
     if (LOG)
         free(LOG);
+    if (users.size>0) {
+        for (i=0; i<users.size; ++i)
+            free(users.users[i]);
+        free(users.users);
+    }
     return;
 }
 
@@ -151,6 +185,17 @@ int flagopt(int argc, char* newarg[]){
     }
     return 0;
 }
+/* Test user defined in conf*/
+int isautorised(char* user){
+    int i;
+    if (users.size == 0)
+        return 0;
+    for (i=0; i!= users.size; ++i) {
+        if (strcmp(users.users[i],user)==0)
+            return 0;
+    }
+    return -1;
+}
 
 /* Find and check user in option */
 /* -1 not found, 0 found and ok, 1 found but not good one, -2 if several users */
@@ -160,7 +205,7 @@ int useropt(int argc, char* newarg[]){
     int uid, realuid, i;
     const char * pattern1 = "user=";
     const char * pattern2 = "users=";
-    
+
     /* find "user=" in argv */
     for ( i = 2; i < argc; i++ ){
       if (strlen(newarg[i])>5 && strncasecmp(pattern1, newarg[i], 5) == 0) {
@@ -190,6 +235,9 @@ int useropt(int argc, char* newarg[]){
 
     /* get uid of the user in reservation */
     realuid = useruid(user);
+    if (isautorised(user)<0) {
+        return -3;
+    }
     free(user);
 
     if (realuid == -1 ) {
@@ -222,17 +270,19 @@ int main(int argc, char* argv[])
     char commandline[] = "scontrol show res %s |grep Users |awk '{print $1}' 2>&1";
     char etc[] = "/etc/slurm/sres.conf";
 
+    users.size=0;
+
     /* Sanity check */
     if (argc == 1) {
         printf("sres: error: No arguments !\n");
         return EXIT_FAILURE;
     }
-   
+
     if (newarg == NULL) {
         printf("sres: error: Not enough memory\n");
         return EXIT_FAILURE;
     }
-    
+
     /* Read conf file */
     readconf(etc);
 
@@ -240,19 +290,19 @@ int main(int argc, char* argv[])
     newarg[0]="scontrol";
     memcpy(&newarg[1], &argv[1], sizeof(char *) * argc);
     newarg[argc+1] = NULL;
-   
+
     /* generate scontrol command arg 1 */
-    if (strcmp("create",newarg[1]) != 0 && 
+    if (strcmp("create",newarg[1]) != 0 &&
         strcmp("update",newarg[1]) != 0 &&
         strcmp("delete",newarg[1]) != 0) {
         printf("sres: error: only create, update or delete operations are allowed\n");
         cleanconf();
         return EXIT_FAILURE;
     }
-    
+
     /* generate scontrol command arg 2 */
     if  ((newarg[2] == NULL) ||
-        (strncmp("res",newarg[2], 3) != 0 && 
+        (strncmp("res",newarg[2], 3) != 0 &&
         strncmp("reservation",newarg[2], 11) != 0))
     {
         printf("sres: error: only reservation can be configured with %s\n",argv[0]);
@@ -277,6 +327,11 @@ int main(int argc, char* argv[])
     }
     if (testuid == -2){
       printf("sres: error: you must indicate only one username: yours\n");
+      cleanconf();
+      return EXIT_FAILURE;
+    }
+    if (testuid == -3){
+      printf("sres: error: you are not autorised to use this tool\n");
       cleanconf();
       return EXIT_FAILURE;
     }
@@ -355,6 +410,12 @@ int main(int argc, char* argv[])
           cleanconf();
           return EXIT_FAILURE;
         }
+      }
+      if (isautorised(user)<0) {
+          printf("sres: error: you are not autorised to use this tool");
+          free(user);
+          cleanconf();
+          return EXIT_FAILURE;
       }
 
       uid = getuid();
