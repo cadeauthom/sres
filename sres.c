@@ -25,6 +25,7 @@
 #include <string.h>
 #include <strings.h>
 #include <sys/types.h>
+#include <time.h>
 #include <pwd.h>
 #include <errno.h>
 #include <sys/wait.h>
@@ -33,6 +34,27 @@
 #define DEBUG 0
 #define MAXLINE 512
 
+char* LOG=NULL;
+
+void logger (const char *cmd, char* args[]) {
+{
+    FILE *fd;
+    time_t t;
+    struct tm s_t;
+    int i;
+
+    if (LOG!=NULL)
+        t = time(NULL);
+        s_t = *localtime(&t);
+        /*TODO:add rights*/
+        fd = fopen (LOG, "a");
+        fprintf(fd, "\n%d-%d-%d %d:%d:%d: ", s_t.tm_year + 1900, s_t.tm_mon + 1, s_t.tm_mday, s_t.tm_hour, s_t.tm_min, s_t.tm_sec);
+        fprintf(fd, "%s", cmd);
+        for (i=0; args[i]!=NULL; ++i)
+            fprintf(fd, " %s", args[i]);
+        fclose(fd);
+    }
+}
 /* Read src.conf */
 int readconf (char * etc) {
     FILE *fp;
@@ -50,12 +72,31 @@ int readconf (char * etc) {
             printf("sres : error: fail to read the configuration: %s", line);
             continue;
         }
+        if (strncasecmp (line,"log_file=",9) == 0){
+            if (LOG != NULL) {
+                printf("sres: error: log_file set several time, skipping configuration: %s",pos);
+                continue;
+            }
+            /* skip '=' */
+            pos++;
+            /* empty option */
+            if (strlen(pos)<2)
+                continue;
+            LOG = malloc(strlen(pos)*sizeof(char));
+            memcpy ( LOG, pos, strlen(pos) );
+            LOG[strlen(pos)-1]='\0';
+        } else {
+            printf("sres: error: don't know this configuration: %s", line);
+            continue;
+        }
     }
     fclose(fp);
     return 0;
 }
 /* Clean the configuration and global variables*/
 void cleanconf() {
+    if (LOG)
+        free(LOG);
     return;
 }
 
@@ -352,9 +393,11 @@ int main(int argc, char* argv[])
     } else {
         waitpid(child_pid, &ret, 0);
         if (ret != 0) {
+          logger("FAILURE: ", newarg);
           cleanconf();
           return EXIT_FAILURE;
         } else {
+          logger("SUCCESS: ", newarg);
           cleanconf();
          return EXIT_SUCCESS;
         }
