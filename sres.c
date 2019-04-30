@@ -33,6 +33,32 @@
 #define DEBUG 0
 #define MAXLINE 512
 
+/* Read src.conf */
+int readconf (char * etc) {
+    FILE *fp;
+    char sep='=';
+    char line[MAXLINE];
+    char *pos;
+    fp = fopen(etc,"r");
+    if (fp == NULL)
+        return -1;
+    while(fgets(line, MAXLINE, fp)){
+        pos = strchr(line, sep);
+		if (pos[0]=='#')
+			continue;
+        if (pos == NULL) {
+            printf("sres : error: fail to read the configuration: %s", line);
+            continue;
+        }
+    }
+    fclose(fp);
+    return 0;
+}
+/* Clean the configuration and global variables*/
+void cleanconf() {
+    return;
+}
+
 /* Find uid given a username */
 int useruid (char * user) {
 
@@ -153,6 +179,7 @@ int main(int argc, char* argv[])
     char buff[MAXLINE];
     FILE * file;
     char commandline[] = "scontrol show res %s |grep Users |awk '{print $1}' 2>&1";
+    char etc[] = "/etc/slurm/sres.conf";
 
     /* Sanity check */
     if (argc == 1) {
@@ -165,6 +192,9 @@ int main(int argc, char* argv[])
         return EXIT_FAILURE;
     }
     
+    /* Read conf file */
+    readconf(etc);
+
     /* generate scontrol command arg 0 */
     newarg[0]="scontrol";
     memcpy(&newarg[1], &argv[1], sizeof(char *) * argc);
@@ -175,6 +205,7 @@ int main(int argc, char* argv[])
         strcmp("update",newarg[1]) != 0 &&
         strcmp("delete",newarg[1]) != 0) {
         printf("sres: error: only create, update or delete operations are allowed\n");
+        cleanconf();
         return EXIT_FAILURE;
     }
     
@@ -184,12 +215,14 @@ int main(int argc, char* argv[])
         strncmp("reservation",newarg[2], 11) != 0))
     {
         printf("sres: error: only reservation can be configured with %s\n",argv[0]);
+        cleanconf();
         return EXIT_FAILURE;
     }
 
     /* avoid flags option */
     if (flagopt(argc,argv) == -1) {
         printf("sres: error: flags are not supported\n");
+        cleanconf();
         return EXIT_FAILURE;
     }
 
@@ -198,10 +231,12 @@ int main(int argc, char* argv[])
     if (testuid == 1){
       printf("sres: error: you cannot create/modify/delete reservation "
              "for other users\n");
+      cleanconf();
       return EXIT_FAILURE;
     }
     if (testuid == -2){
-        printf("sres: error: you must indicate only one username: yours\n");
+      printf("sres: error: you must indicate only one username: yours\n");
+      cleanconf();
       return EXIT_FAILURE;
     }
 
@@ -226,6 +261,7 @@ int main(int argc, char* argv[])
       if (find == -1){
           printf("sres: error: you must indicate the reservation with "
                  "reservation= or res=\n");
+          cleanconf();
           return EXIT_FAILURE;
       }
 
@@ -236,6 +272,7 @@ int main(int argc, char* argv[])
       free(res_id);
       if (file == NULL){
           printf("sres: error: Fail launching command scontrol show res\n");
+          cleanconf();
           return EXIT_FAILURE;
       }
 
@@ -258,6 +295,7 @@ int main(int argc, char* argv[])
 
       if (i < 1) {
         printf("sres: error: The reservation does not exist\n");
+        cleanconf();
         return EXIT_FAILURE;
       }
       
@@ -265,6 +303,7 @@ int main(int argc, char* argv[])
       /* Should never happen */
         printf("sres: error: Find several reservations\n");
         free(user);
+        cleanconf();
         return EXIT_FAILURE;
       }
 
@@ -272,6 +311,7 @@ int main(int argc, char* argv[])
         if (user[i] == ','){
           printf("sres: error: There is several owners of the reservation\n");
           free(user);
+          cleanconf();
           return EXIT_FAILURE;
         }
       }
@@ -281,6 +321,7 @@ int main(int argc, char* argv[])
       realuid = useruid(user);
       free(user);
       if (realuid == -1 ) {
+        cleanconf();
         return EXIT_FAILURE;
       }
 
@@ -292,11 +333,13 @@ int main(int argc, char* argv[])
       if (uid != realuid){
           printf("sres: error: you cannot create/modify/delete reservation "
                  "for other users\n");
+          cleanconf();
           return EXIT_FAILURE;
       }
     } else {
         if (testuid == -1){
           printf("sres: error: You must indicate your user name\n");
+          cleanconf();
           return EXIT_FAILURE;
         }
     }
